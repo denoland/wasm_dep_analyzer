@@ -36,14 +36,14 @@ jobs:
       - name: Lint
         if: contains(matrix.os, 'ubuntu')
         run: |
-          cargo clippy --locked --all-features --all-targets -- -D clippy::all
+          cargo clippy --all-features --all-targets -- -D clippy::all
           deno lint
 
       - name: Cargo Build
-        run: cargo build --locked --all-features --all-targets
+        run: cargo build --all-features --all-targets
 
       - name: Cargo Test
-        run: cargo test --locked --all-features --all-targets
+        run: cargo test --all-features --all-targets
 
       - name: Cargo publish
         if: |

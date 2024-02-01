@@ -1,0 +1,15 @@
+[package]
+name = "wasm_dep_analyzer"
+version = "0.0.1"
+edition = "2021"
+description = "Wasm module dependency analysis for module resolution"
+repository = "https://github.com/denoland/wasm_dep_analyzer"
+documentation = "https://docs.rs/wasm_dep_analyzer"
+authors = ["the Deno authors"]
+license = "MIT"
+
+[dependencies]
+thiserror = "1.0.56"
+
+[dev-dependencies]
+pretty_assertions = "1.0.0"

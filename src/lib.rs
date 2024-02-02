@@ -5,6 +5,12 @@ use std::str::Utf8Error;
 
 use thiserror::Error;
 
+#[derive(Default, Debug, Clone)]
+pub struct ParseOptions {
+  /// Skip getting the type information.
+  pub skip_types: bool,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub struct WasmDeps<'a> {
   pub imports: Vec<Import<'a>>,
@@ -16,8 +22,11 @@ impl<'a> WasmDeps<'a> {
   ///
   /// The parser will try to parse even when it doesn't understand something
   /// and will only parse out the information necessary for dependency analysis.
-  pub fn parse(input: &'a [u8]) -> Result<Self, ParseError> {
-    parse(input)
+  pub fn parse(
+    input: &'a [u8],
+    options: ParseOptions,
+  ) -> Result<Self, ParseError> {
+    parse(input, !options.skip_types)
   }
 }
 
@@ -121,8 +130,8 @@ pub enum ParseError {
   UnknownTagKind(u8),
   #[error("invalid type indicator '{0:X}'")]
   InvalidTypeIndicator(u8),
-  #[error("export type not found")]
-  ExportTypeNotFound,
+  #[error("unresolved export type")]
+  UnresolvedExportType,
 }
 
 type ParseResult<'a, T> = Result<(&'a [u8], T), ParseError>;
@@ -285,16 +294,16 @@ fn build_func_export_idx_to_type_idx(
   Ok(space)
 }
 
-fn parse(input: &[u8]) -> Result<WasmDeps, ParseError> {
+fn parse(input: &[u8], include_types: bool) -> Result<WasmDeps, ParseError> {
   let mut state = ParserState {
     imports: None,
     exports: None,
     types_section: None,
     globals_section: None,
     functions_section: None,
-    search_for_types: true,
-    search_for_fns: true,
-    search_for_globals: true,
+    search_for_types: include_types,
+    search_for_fns: include_types,
+    search_for_globals: include_types,
   };
 
   let (input, _) = parse_magic_bytes(input)?;
@@ -536,10 +545,10 @@ fn parse_export_type(input: &[u8]) -> ParseResult<Export> {
   let (input, index) = parse_var_uint(input)?;
 
   let export_type = match kind_byte {
-    0x00 => ExportType::Function(Err(ParseError::ExportTypeNotFound)),
+    0x00 => ExportType::Function(Err(ParseError::UnresolvedExportType)),
     0x01 => ExportType::Table,
     0x02 => ExportType::Memory,
-    0x03 => ExportType::Global(Err(ParseError::ExportTypeNotFound)),
+    0x03 => ExportType::Global(Err(ParseError::UnresolvedExportType)),
     0x04 => ExportType::Tag,
     _ => ExportType::Unknown,
   };

@@ -9,6 +9,8 @@ use wasm_dep_analyzer::GlobalType;
 use wasm_dep_analyzer::Import;
 use wasm_dep_analyzer::ImportType;
 use wasm_dep_analyzer::Limits;
+use wasm_dep_analyzer::ParseError;
+use wasm_dep_analyzer::ParseOptions;
 use wasm_dep_analyzer::TableType;
 use wasm_dep_analyzer::TagType;
 use wasm_dep_analyzer::ValueType;
@@ -23,7 +25,7 @@ fn wasm_export_only() {
   //     left + right
   // }
   let input = std::fs::read("tests/testdata/export_only.wasm").unwrap();
-  let module = WasmDeps::parse(&input).unwrap();
+  let module = WasmDeps::parse(&input, ParseOptions::default()).unwrap();
   assert_eq!(
     module,
     WasmDeps {
@@ -76,7 +78,7 @@ fn wasm_import_and_export() {
   //     left + unsafe { get_random_value() }
   // }
   let input = std::fs::read("tests/testdata/import_export.wasm").unwrap();
-  let module = WasmDeps::parse(&input).unwrap();
+  let module = WasmDeps::parse(&input, ParseOptions::default()).unwrap();
   assert_eq!(
     module,
     WasmDeps {
@@ -123,7 +125,7 @@ fn wasm_import_and_export() {
 #[test]
 fn wasm_import_module() {
   let input = std::fs::read("tests/testdata/import_module.wasm").unwrap();
-  let module = WasmDeps::parse(&input).unwrap();
+  let module = WasmDeps::parse(&input, ParseOptions::default()).unwrap();
   assert_eq!(
     module,
     WasmDeps {
@@ -154,7 +156,7 @@ fn wasm_mutable_global_import() {
   //  global.set 0))
   let input =
     std::fs::read("tests/testdata/import_mutable_global.wasm").unwrap();
-  let module = WasmDeps::parse(&input).unwrap();
+  let module = WasmDeps::parse(&input, ParseOptions::default()).unwrap();
   assert_eq!(
     module,
     WasmDeps {
@@ -186,7 +188,7 @@ fn wasm_import_table() {
   //   (import "js" "tbl" (table 2 funcref))
   // )
   let input = std::fs::read("tests/testdata/import_table.wasm").unwrap();
-  let module = WasmDeps::parse(&input).unwrap();
+  let module = WasmDeps::parse(&input, ParseOptions::default()).unwrap();
   assert_eq!(
     module,
     WasmDeps {
@@ -222,7 +224,7 @@ fn wasm_import_tag() {
   //   (export "exported_tag" (tag 0))
   // )
   let input = std::fs::read("tests/testdata/import_tag.wasm").unwrap();
-  let module = WasmDeps::parse(&input).unwrap();
+  let module = WasmDeps::parse(&input, ParseOptions::default()).unwrap();
   assert_eq!(
     module,
     WasmDeps {
@@ -251,7 +253,7 @@ fn wasm_export_memory() {
   //   (memory (export "mem") 1 10)
   // )
   let input = std::fs::read("tests/testdata/export_memory.wasm").unwrap();
-  let module = WasmDeps::parse(&input).unwrap();
+  let module = WasmDeps::parse(&input, ParseOptions::default()).unwrap();
   assert_eq!(
     module,
     WasmDeps {
@@ -273,7 +275,7 @@ fn wasm_export_mutable_global() {
   // )
   let input =
     std::fs::read("tests/testdata/export_mutable_global.wasm").unwrap();
-  let module = WasmDeps::parse(&input).unwrap();
+  let module = WasmDeps::parse(&input, ParseOptions::default()).unwrap();
   assert_eq!(
     module,
     WasmDeps {
@@ -297,7 +299,7 @@ fn wasm_export_const_global() {
   //   (global $myGlobal (export "myExportedGlobal") i32 (i32.const 42))
   // )
   let input = std::fs::read("tests/testdata/export_const_global.wasm").unwrap();
-  let module = WasmDeps::parse(&input).unwrap();
+  let module = WasmDeps::parse(&input, ParseOptions::default()).unwrap();
   assert_eq!(
     module,
     WasmDeps {
@@ -326,7 +328,7 @@ fn wasm_export_imported_func() {
   // )
   let input =
     std::fs::read("tests/testdata/export_imported_func.wasm").unwrap();
-  let module = WasmDeps::parse(&input).unwrap();
+  let module = WasmDeps::parse(&input, ParseOptions::default()).unwrap();
   assert_eq!(
     module,
     WasmDeps {
@@ -342,6 +344,49 @@ fn wasm_export_imported_func() {
           params: vec![ValueType::I32, ValueType::I32],
           returns: vec![ValueType::I32],
         })),
+      }],
+    }
+  );
+}
+
+#[test]
+fn wasm_skip_types() {
+  // function
+  let input =
+    std::fs::read("tests/testdata/export_imported_func.wasm").unwrap();
+  let module =
+    WasmDeps::parse(&input, ParseOptions { skip_types: true }).unwrap();
+  assert_eq!(
+    module,
+    WasmDeps {
+      imports: vec![Import {
+        name: "external_func",
+        module: "env",
+        import_type: ImportType::Function(0),
+      }],
+      exports: vec![Export {
+        name: "exported_func",
+        index: 0,
+        // won't be resolved
+        export_type: ExportType::Function(Err(
+          ParseError::UnresolvedExportType
+        )),
+      }],
+    }
+  );
+
+  // global
+  let input = std::fs::read("tests/testdata/export_const_global.wasm").unwrap();
+  let module =
+    WasmDeps::parse(&input, ParseOptions { skip_types: true }).unwrap();
+  assert_eq!(
+    module,
+    WasmDeps {
+      imports: vec![],
+      exports: vec![Export {
+        name: "myExportedGlobal",
+        index: 0,
+        export_type: ExportType::Global(Err(ParseError::UnresolvedExportType)),
       }],
     }
   );

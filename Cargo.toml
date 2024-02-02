@@ -1,6 +1,6 @@
 [package]
 name = "wasm_dep_analyzer"
-version = "0.0.1"
+version = "0.1.0"
 edition = "2021"
 description = "Wasm module dependency analysis for module resolution"
 repository = "https://github.com/denoland/wasm_dep_analyzer"

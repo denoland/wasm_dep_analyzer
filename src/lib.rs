@@ -6,12 +6,12 @@ use std::str::Utf8Error;
 use thiserror::Error;
 
 #[derive(Debug, PartialEq, Eq)]
-pub struct WasmBytes<'a> {
+pub struct WasmDeps<'a> {
   pub imports: Vec<Import<'a>>,
   pub exports: Vec<Export<'a>>,
 }
 
-impl<'a> WasmBytes<'a> {
+impl<'a> WasmDeps<'a> {
   /// Parses a Wasm module's bytes discovering the imports, exports, and types.
   ///
   /// The parser will try to parse even when it doesn't understand something
@@ -285,7 +285,7 @@ fn build_func_export_idx_to_type_idx(
   Ok(space)
 }
 
-fn parse(input: &[u8]) -> Result<WasmBytes, ParseError> {
+fn parse(input: &[u8]) -> Result<WasmDeps, ParseError> {
   let mut state = ParserState {
     imports: None,
     exports: None,
@@ -327,7 +327,7 @@ fn parse(input: &[u8]) -> Result<WasmBytes, ParseError> {
 
   state.fill_type_information();
 
-  Ok(WasmBytes {
+  Ok(WasmDeps {
     imports: state.imports.unwrap_or_default(),
     exports: state.exports.unwrap_or_default(),
   })

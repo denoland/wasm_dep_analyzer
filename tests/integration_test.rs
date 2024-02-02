@@ -4,6 +4,7 @@ use pretty_assertions::assert_eq;
 
 use wasm_dep_analyzer::Export;
 use wasm_dep_analyzer::ExportType;
+use wasm_dep_analyzer::FunctionSignature;
 use wasm_dep_analyzer::GlobalType;
 use wasm_dep_analyzer::Import;
 use wasm_dep_analyzer::ImportType;
@@ -11,7 +12,7 @@ use wasm_dep_analyzer::Limits;
 use wasm_dep_analyzer::TableType;
 use wasm_dep_analyzer::TagType;
 use wasm_dep_analyzer::ValueType;
-use wasm_dep_analyzer::WasmModule;
+use wasm_dep_analyzer::WasmBytes;
 
 #[test]
 fn wasm_export_only() {
@@ -22,10 +23,10 @@ fn wasm_export_only() {
   //     left + right
   // }
   let input = std::fs::read("tests/testdata/export_only.wasm").unwrap();
-  let module = WasmModule::parse(&input).unwrap();
+  let module = WasmBytes::parse(&input).unwrap();
   assert_eq!(
     module,
-    WasmModule {
+    WasmBytes {
       imports: vec![],
       exports: vec![
         Export {
@@ -36,22 +37,28 @@ fn wasm_export_only() {
         Export {
           name: "add",
           index: 0,
-          export_type: ExportType::Function,
+          export_type: ExportType::Function(Ok(FunctionSignature {
+            params: vec![ValueType::I32, ValueType::I32],
+            returns: vec![ValueType::I32],
+          })),
         },
         Export {
           name: "__data_end",
           index: 1,
-          export_type: ExportType::Global,
+          export_type: ExportType::Global(Ok(GlobalType {
+            value_type: ValueType::I32,
+            mutability: false,
+          })),
         },
         Export {
           name: "__heap_base",
           index: 2,
-          export_type: ExportType::Global,
+          export_type: ExportType::Global(Ok(GlobalType {
+            value_type: ValueType::I32,
+            mutability: false,
+          })),
         }
       ],
-      types: Ok(Vec::new()),
-      functions: Ok(Vec::new()),
-      globals: Ok(Vec::new()),
     }
   );
 }
@@ -69,10 +76,10 @@ fn wasm_import_and_export() {
   //     left + unsafe { get_random_value() }
   // }
   let input = std::fs::read("tests/testdata/import_export.wasm").unwrap();
-  let module = WasmModule::parse(&input).unwrap();
+  let module = WasmBytes::parse(&input).unwrap();
   assert_eq!(
     module,
-    WasmModule {
+    WasmBytes {
       imports: vec![Import {
         name: "get_random_value",
         module: "env",
@@ -87,22 +94,28 @@ fn wasm_import_and_export() {
         Export {
           name: "add",
           index: 1,
-          export_type: ExportType::Function,
+          export_type: ExportType::Function(Ok(FunctionSignature {
+            params: vec![ValueType::I32],
+            returns: vec![ValueType::I32],
+          })),
         },
         Export {
           name: "__data_end",
           index: 1,
-          export_type: ExportType::Global,
+          export_type: ExportType::Global(Ok(GlobalType {
+            value_type: ValueType::I32,
+            mutability: false,
+          })),
         },
         Export {
           name: "__heap_base",
           index: 2,
-          export_type: ExportType::Global,
+          export_type: ExportType::Global(Ok(GlobalType {
+            value_type: ValueType::I32,
+            mutability: false,
+          })),
         }
       ],
-      types: Ok(Vec::new()),
-      functions: Ok(Vec::new()),
-      globals: Ok(Vec::new()),
     }
   );
 }
@@ -110,10 +123,10 @@ fn wasm_import_and_export() {
 #[test]
 fn wasm_import_module() {
   let input = std::fs::read("tests/testdata/import_module.wasm").unwrap();
-  let module = WasmModule::parse(&input).unwrap();
+  let module = WasmBytes::parse(&input).unwrap();
   assert_eq!(
     module,
-    WasmModule {
+    WasmBytes {
       imports: vec![Import {
         name: "add",
         module: "./import_inner.mjs",
@@ -122,11 +135,11 @@ fn wasm_import_module() {
       exports: vec![Export {
         name: "exported_add",
         index: 1,
-        export_type: ExportType::Function,
+        export_type: ExportType::Function(Ok(FunctionSignature {
+          params: vec![], // this module actually just adds two constants
+          returns: vec![ValueType::I32],
+        })),
       }],
-      types: Ok(Vec::new()),
-      functions: Ok(Vec::new()),
-      globals: Ok(Vec::new()),
     }
   );
 }
@@ -141,10 +154,10 @@ fn wasm_mutable_global_import() {
   //  global.set 0))
   let input =
     std::fs::read("tests/testdata/import_mutable_global.wasm").unwrap();
-  let module = WasmModule::parse(&input).unwrap();
+  let module = WasmBytes::parse(&input).unwrap();
   assert_eq!(
     module,
-    WasmModule {
+    WasmBytes {
       imports: vec![Import {
         name: "g",
         module: "env",
@@ -156,11 +169,11 @@ fn wasm_mutable_global_import() {
       exports: vec![Export {
         name: "f",
         index: 0,
-        export_type: ExportType::Function,
+        export_type: ExportType::Function(Ok(FunctionSignature {
+          params: vec![],
+          returns: vec![],
+        })),
       }],
-      types: Ok(Vec::new()),
-      functions: Ok(Vec::new()),
-      globals: Ok(Vec::new()),
     }
   );
 }
@@ -173,10 +186,10 @@ fn wasm_import_table() {
   //   (import "js" "tbl" (table 2 funcref))
   // )
   let input = std::fs::read("tests/testdata/import_table.wasm").unwrap();
-  let module = WasmModule::parse(&input).unwrap();
+  let module = WasmBytes::parse(&input).unwrap();
   assert_eq!(
     module,
-    WasmModule {
+    WasmBytes {
       imports: vec![Import {
         name: "table",
         module: "env",
@@ -189,9 +202,6 @@ fn wasm_import_table() {
         }),
       }],
       exports: vec![],
-      types: Ok(Vec::new()),
-      functions: Ok(Vec::new()),
-      globals: Ok(Vec::new()),
     }
   );
 }
@@ -212,10 +222,10 @@ fn wasm_import_tag() {
   //   (export "exported_tag" (tag 0))
   // )
   let input = std::fs::read("tests/testdata/import_tag.wasm").unwrap();
-  let module = WasmModule::parse(&input).unwrap();
+  let module = WasmBytes::parse(&input).unwrap();
   assert_eq!(
     module,
-    WasmModule {
+    WasmBytes {
       imports: vec![Import {
         name: "exception_tag",
         module: "env",
@@ -229,9 +239,6 @@ fn wasm_import_tag() {
         index: 0,
         export_type: ExportType::Tag,
       }],
-      types: Ok(Vec::new()),
-      functions: Ok(Vec::new()),
-      globals: Ok(Vec::new()),
     }
   );
 }
@@ -244,19 +251,16 @@ fn wasm_export_memory() {
   //   (memory (export "mem") 1 10)
   // )
   let input = std::fs::read("tests/testdata/export_memory.wasm").unwrap();
-  let module = WasmModule::parse(&input).unwrap();
+  let module = WasmBytes::parse(&input).unwrap();
   assert_eq!(
     module,
-    WasmModule {
+    WasmBytes {
       imports: vec![],
       exports: vec![Export {
         name: "mem",
         index: 0,
         export_type: ExportType::Memory,
       }],
-      types: Ok(Vec::new()),
-      functions: Ok(Vec::new()),
-      globals: Ok(Vec::new()),
     }
   );
 }
@@ -269,19 +273,19 @@ fn wasm_export_mutable_global() {
   // )
   let input =
     std::fs::read("tests/testdata/export_mutable_global.wasm").unwrap();
-  let module = WasmModule::parse(&input).unwrap();
+  let module = WasmBytes::parse(&input).unwrap();
   assert_eq!(
     module,
-    WasmModule {
+    WasmBytes {
       imports: vec![],
       exports: vec![Export {
         name: "myExportedGlobal",
         index: 0,
-        export_type: ExportType::Global,
+        export_type: ExportType::Global(Ok(GlobalType {
+          value_type: ValueType::I32,
+          mutability: true,
+        })),
       }],
-      types: Ok(Vec::new()),
-      functions: Ok(Vec::new()),
-      globals: Ok(Vec::new()),
     }
   );
 }
@@ -293,19 +297,52 @@ fn wasm_export_const_global() {
   //   (global $myGlobal (export "myExportedGlobal") i32 (i32.const 42))
   // )
   let input = std::fs::read("tests/testdata/export_const_global.wasm").unwrap();
-  let module = WasmModule::parse(&input).unwrap();
+  let module = WasmBytes::parse(&input).unwrap();
   assert_eq!(
     module,
-    WasmModule {
+    WasmBytes {
       imports: vec![],
       exports: vec![Export {
         name: "myExportedGlobal",
         index: 0,
-        export_type: ExportType::Global,
+        export_type: ExportType::Global(Ok(GlobalType {
+          value_type: ValueType::I32,
+          mutability: false,
+        })),
       }],
-      types: Ok(Vec::new()),
-      functions: Ok(Vec::new()),
-      globals: Ok(Vec::new()),
+    }
+  );
+}
+
+#[test]
+fn wasm_export_imported_func() {
+  // (module
+  //   ;; Import a function named 'external_func' from the 'env' module.
+  //   ;; The function takes two i32 integers and returns an i32 integer.
+  //   (import "env" "external_func" (func $imported_func (param i32 i32) (result i32)))
+
+  //   ;; Export the imported function under the name 'exported_func'.
+  //   (export "exported_func" (func $imported_func))
+  // )
+  let input =
+    std::fs::read("tests/testdata/export_imported_func.wasm").unwrap();
+  let module = WasmBytes::parse(&input).unwrap();
+  assert_eq!(
+    module,
+    WasmBytes {
+      imports: vec![Import {
+        name: "external_func",
+        module: "env",
+        import_type: ImportType::Function(0),
+      }],
+      exports: vec![Export {
+        name: "exported_func",
+        index: 0,
+        export_type: ExportType::Function(Ok(FunctionSignature {
+          params: vec![ValueType::I32, ValueType::I32],
+          returns: vec![ValueType::I32],
+        })),
+      }],
     }
   );
 }

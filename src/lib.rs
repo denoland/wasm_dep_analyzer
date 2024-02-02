@@ -1,21 +1,17 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
+use std::collections::HashMap;
 use std::str::Utf8Error;
 
 use thiserror::Error;
 
 #[derive(Debug, PartialEq, Eq)]
-pub struct WasmModule<'a> {
+pub struct WasmBytes<'a> {
   pub imports: Vec<Import<'a>>,
   pub exports: Vec<Export<'a>>,
-  /// Types are only used for type checking and so if for some reason
-  /// we can't parse them, then we only surface that error at that point.
-  pub types: Result<Vec<FunctionSignature>, ParseError>,
-  pub functions: Result<Vec<u32>, ParseError>,
-  pub globals: Result<Vec<GlobalType>, ParseError>,
 }
 
-impl<'a> WasmModule<'a> {
+impl<'a> WasmBytes<'a> {
   /// Parses a Wasm module's bytes discovering the imports, exports, and types.
   ///
   /// The parser will try to parse even when it doesn't understand something
@@ -25,9 +21,9 @@ impl<'a> WasmModule<'a> {
     let (mut input, _) = ensure_known_version(input)?;
     let mut imports = None;
     let mut exports = None;
-    let mut types = None;
-    let mut functions = None;
-    let mut globals = None;
+    let mut types_section = None;
+    let mut functions_section = None;
+    let mut globals_section = None;
     let mut search_for_types = true;
     let mut search_for_fns = true;
     let mut search_for_globals = true;
@@ -46,40 +42,128 @@ impl<'a> WasmModule<'a> {
         }
         0x07 if exports.is_none() => {
           let result = parse_export_section(section.bytes)?;
-          if !result.iter().any(|e| e.export_type == ExportType::Function) {
+          if !result
+            .iter()
+            .any(|e| matches!(e.export_type, ExportType::Function(_)))
+          {
             search_for_types = false;
             search_for_fns = false;
             // clear these out if there are no function exports
-            types = None;
-            functions = None;
+            types_section = None;
+            functions_section = None;
           }
-          if !result.iter().any(|e| e.export_type == ExportType::Global) {
+          if !result
+            .iter()
+            .any(|e| matches!(e.export_type, ExportType::Global(_)))
+          {
             search_for_globals = false;
-            globals = None;
+            globals_section = None;
           }
           exports = Some(result);
         }
         0x01 if search_for_types => {
-          types = Some(parse_type_section(section.bytes)); // don't surface error
+          types_section = Some(section.bytes);
           search_for_types = false;
         }
         0x03 if search_for_fns => {
-          functions = Some(parse_function_section(section.bytes));
+          functions_section = Some(section.bytes);
           search_for_fns = false;
         }
         0x06 if search_for_globals => {
-          globals = Some(parse_global_section(section.bytes));
+          globals_section = Some(section.bytes);
           search_for_globals = false;
         }
         _ => {}
       }
     }
+    if let Some(exports) = &mut exports {
+      if types_section.is_some()
+        || functions_section.is_some()
+        || globals_section.is_some()
+      {
+        let mut parsed_types = None;
+        let mut parsed_functions = None;
+        let mut parsed_globals = None;
+        let mut function_indexes = None;
+        for export in exports {
+          if let ExportType::Function(sig) = &mut export.export_type {
+            let parsed_types = parsed_types.get_or_insert_with(|| {
+              parse_type_section(types_section.unwrap_or_default())
+            });
+            let parsed_functions = parsed_functions.get_or_insert_with(|| {
+              parse_function_section(functions_section.unwrap_or_default())
+            });
+            let func_export_idx_to_type_idx = function_indexes
+              .get_or_insert_with(|| {
+                let parsed_functions = match parsed_functions.as_ref() {
+                  Ok(f) => f,
+                  Err(err) => return Err(err.clone()),
+                };
+                // the function index space is created by iterating the
+                // function imports and then the function section
+                let mut space = HashMap::with_capacity(
+                  imports.as_ref().map(|i| i.len()).unwrap_or(0)
+                    + parsed_functions.len(),
+                );
+                let mut i = 0;
+                if let Some(imports) = &imports {
+                  for import in imports {
+                    if let ImportType::Function(final_index) =
+                      &import.import_type
+                    {
+                      space.insert(i, *final_index);
+                      i += 1;
+                    }
+                  }
+                }
+                for index in parsed_functions.iter() {
+                  space.insert(i, *index);
+                  i += 1;
+                }
+                Ok(space)
+              });
+            match &func_export_idx_to_type_idx {
+              Ok(func_export_idx_to_type_idx) => match &parsed_types {
+                Ok(types) => {
+                  if let Some(types_index) =
+                    func_export_idx_to_type_idx.get(&export.index)
+                  {
+                    let types_index = *types_index as usize;
+                    if types_index < types.len() {
+                      *sig = Ok(types[types_index].clone());
+                    }
+                  }
+                }
+                Err(err) => {
+                  *sig = Err(err.clone());
+                }
+              },
+              Err(err) => {
+                *sig = Err(err.clone());
+              }
+            }
+          } else if let ExportType::Global(global) = &mut export.export_type {
+            let parsed_globals = parsed_globals.get_or_insert_with(|| {
+              parse_global_section(globals_section.unwrap_or_default())
+            });
+            let export_index = export.index as usize;
+            match &parsed_globals {
+              Ok(globals) => {
+                if let Some(global_type) = globals.get(export_index) {
+                  *global = Ok(global_type.clone());
+                }
+              }
+              Err(err) => {
+                *global = Err(err.clone());
+              }
+            }
+          }
+        }
+      }
+    }
     Ok(Self {
       imports: imports.unwrap_or_default(),
       exports: exports.unwrap_or_default(),
-      types: types.unwrap_or_else(|| Ok(Vec::new())),
-      functions: functions.unwrap_or_else(|| Ok(Vec::new())),
-      globals: globals.unwrap_or_else(|| Ok(Vec::new())),
     })
   }
 }
@@ -120,7 +204,7 @@ pub enum ValueType {
   Unknown,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GlobalType {
   pub value_type: ValueType,
   pub mutability: bool,
@@ -148,21 +232,21 @@ pub struct Export<'a> {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ExportType {
-  Function,
+  Function(Result<FunctionSignature, ParseError>),
   Table,
   Memory,
-  Global,
+  Global(Result<GlobalType, ParseError>),
   Tag,
   Unknown,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FunctionSignature {
   pub params: Vec<ValueType>,
   pub returns: Vec<ValueType>,
 }
 
-#[derive(Error, Debug, PartialEq, Eq)]
+#[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum ParseError {
   #[error("not a Wasm module")]
   NotWasm,
@@ -184,6 +268,8 @@ pub enum ParseError {
   UnknownTagKind(u8),
   #[error("invalid type indicator '{0:X}'")]
   InvalidTypeIndicator(u8),
+  #[error("export type not found")]
+  ExportTypeNotFound,
 }
 
 type ParseResult<'a, T> = Result<(&'a [u8], T), ParseError>;
@@ -391,10 +477,10 @@ fn parse_export_type(input: &[u8]) -> ParseResult<Export> {
   let (input, index) = parse_var_uint(input)?;
 
   let export_type = match kind_byte {
-    0x00 => ExportType::Function,
+    0x00 => ExportType::Function(Err(ParseError::ExportTypeNotFound)),
     0x01 => ExportType::Table,
     0x02 => ExportType::Memory,
-    0x03 => ExportType::Global,
+    0x03 => ExportType::Global(Err(ParseError::ExportTypeNotFound)),
     0x04 => ExportType::Tag,
     _ => ExportType::Unknown,
   };
@@ -412,6 +498,10 @@ fn parse_export_type(input: &[u8]) -> ParseResult<Export> {
 fn parse_type_section(
   input: &[u8],
 ) -> Result<Vec<FunctionSignature>, ParseError> {
+  if input.is_empty() {
+    return Ok(Vec::new());
+  }
+
   let (mut input, count) = parse_var_uint(input)?;
   let mut function_signatures = Vec::with_capacity(count as usize);
 
@@ -453,6 +543,10 @@ fn parse_function_signature(input: &[u8]) -> ParseResult<FunctionSignature> {
 }
 
 fn parse_function_section(input: &[u8]) -> Result<Vec<u32>, ParseError> {
+  if input.is_empty() {
+    return Ok(Vec::new());
+  }
+
   let (mut input, count) = parse_var_uint(input)?;
   let mut function_indices = Vec::with_capacity(count as usize);
 
@@ -468,6 +562,10 @@ fn parse_function_section(input: &[u8]) -> Result<Vec<u32>, ParseError> {
 }
 
 fn parse_global_section(input: &[u8]) -> Result<Vec<GlobalType>, ParseError> {
+  if input.is_empty() {
+    return Ok(Vec::new());
+  }
+
   let (mut input, count) = parse_var_uint(input)?;
   let mut globals = Vec::with_capacity(count as usize);
 

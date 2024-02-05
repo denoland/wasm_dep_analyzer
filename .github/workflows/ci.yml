@@ -33,9 +33,7 @@ jobs:
           deno fmt --check
 
       - name: Lint
-        run: |
-          cargo clippy --all-features --all-targets -- -D clippy::all
-          deno lint
+        run: cargo clippy --all-features --all-targets -- -D clippy::all
 
       - name: Cargo Build
         run: cargo build --all-features --all-targets

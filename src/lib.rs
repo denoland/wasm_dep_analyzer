@@ -108,7 +108,8 @@ pub struct FunctionSignature {
   pub returns: Vec<ValueType>,
 }
 
-#[derive(Error, Debug, Clone, PartialEq, Eq)]
+#[derive(Error, Debug, Clone, PartialEq, Eq, deno_error::JsError)]
+#[class(type)]
 pub enum ParseError {
   #[error("not a Wasm module")]
   NotWasm,

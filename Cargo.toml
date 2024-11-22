@@ -9,7 +9,8 @@ authors = ["the Deno authors"]
 license = "MIT"
 
 [dependencies]
-thiserror = "1.0.56"
+thiserror = "2"
+deno_error = "0.5.1"
 
 [dev-dependencies]
 pretty_assertions = "1.0.0"

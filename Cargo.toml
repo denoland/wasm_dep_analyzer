@@ -10,7 +10,7 @@ license = "MIT"
 
 [dependencies]
 thiserror = "2"
-deno_error = "0.5.1"
+deno_error = "0.6.0"
 
 [dev-dependencies]
 pretty_assertions = "1.0.0"

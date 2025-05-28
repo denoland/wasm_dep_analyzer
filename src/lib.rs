@@ -760,7 +760,7 @@ mod test {
       let input = [0x02, b'x', b'y', b'z'];
       let (rest, string) = parse_length_prefixed_string(&input).unwrap();
       assert_eq!(string, "xy");
-      assert_eq!(rest, &[b'z']);
+      assert_eq!(rest, b"z");
     }
   }
 
